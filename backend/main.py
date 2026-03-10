@@ -1,7 +1,7 @@
-
 import os
 import re
 import logging
+import subprocess
 from datetime import datetime
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile
@@ -10,7 +10,20 @@ from pydantic import BaseModel
 from PIL import Image
 import pytesseract
 import io
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# Set tesseract path based on OS
+if os.name == "nt":
+    # Windows
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+else:
+    # Linux (Render) - install if missing
+    try:
+        result = subprocess.run(["which", "tesseract"], capture_output=True, text=True)
+        if not result.stdout.strip():
+            subprocess.run(["apt-get", "install", "-y", "tesseract-ocr"], capture_output=True)
+    except Exception as e:
+        print(f"Tesseract setup: {e}")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
