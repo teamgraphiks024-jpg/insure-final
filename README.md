@@ -4,6 +4,11 @@ A full-stack health insurance underwriting system that uses **Tesseract OCR** to
 
 > Built with FastAPI · React · Tesseract OCR · TailwindCSS
 
+
+vercel:insure-final.vercel.app(frontend)
+render:https://insure-final-fm9r.onrender.com(backend)
+
+
 ## 📦 Repository
 
 **Clone and get started:**
