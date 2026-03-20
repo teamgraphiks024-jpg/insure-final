@@ -67,7 +67,7 @@ export default function App() {
           <h1 className="text-4xl font-black text-white mb-2 tracking-tight">
             Insure<span className="text-cyan-400">Pro</span> AI
           </h1>
-          <p className="text-slate-400">Health insurance underwriting powered by Trust</p>
+          <p className="text-slate-400">Health insurance underwriting powered by Gemini Vision</p>
         </div>
 
         {/* Step Progress */}
@@ -105,7 +105,7 @@ export default function App() {
               )}
               {step === 1 && <PolicyHolderProfile onNext={handleProfileNext} />}
               {step === 2 && <ClinicalRiskAssessment profile={profile} onNext={handleMedicalNext} onBack={() => setStep(1)} />}
-              {step === 3 && <ResultCard result={result} medical={medical} onReset={reset} onBack={() => setStep(2)} />}
+              {step === 3 && <ResultCard result={result} profile={profile} medical={medical} onReset={reset} onBack={() => setStep(2)} />}
             </>
           )}
         </div>

@@ -39,7 +39,7 @@ function CongratsModal({ tier, name, refId, onClose }) {
   );
 }
 
-export default function ResultCard({ result, onReset, onBack, medical }) {
+export default function ResultCard({ result, profile: fullProfile, onReset, onBack, medical }) {
   const [showCongrats, setShowCongrats] = useState(false);
   const [refId, setRefId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -58,7 +58,7 @@ export default function ResultCard({ result, onReset, onBack, medical }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          profile: result.profile_full || profile,
+          profile: fullProfile || profile,
           medical: medical || {},
           risk,
           premium,
