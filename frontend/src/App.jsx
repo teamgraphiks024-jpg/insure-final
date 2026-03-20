@@ -105,7 +105,7 @@ export default function App() {
               )}
               {step === 1 && <PolicyHolderProfile onNext={handleProfileNext} />}
               {step === 2 && <ClinicalRiskAssessment profile={profile} onNext={handleMedicalNext} onBack={() => setStep(1)} />}
-              {step === 3 && <ResultCard result={result} profile={profile} medical={medical} onReset={reset} onBack={() => setStep(2)} />}
+              {step === 3 && <ResultCard result={result} fullProfile={profile} medical={medical} onReset={reset} onBack={() => setStep(2)} />}
             </>
           )}
         </div>

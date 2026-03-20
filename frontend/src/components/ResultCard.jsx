@@ -39,7 +39,7 @@ function CongratsModal({ tier, name, refId, onClose }) {
   );
 }
 
-export default function ResultCard({ result, profile: fullProfile, onReset, onBack, medical }) {
+export default function ResultCard({ result, fullProfile, onReset, onBack, medical }) {
   const [showCongrats, setShowCongrats] = useState(false);
   const [refId, setRefId] = useState("");
   const [saving, setSaving] = useState(false);
@@ -53,20 +53,38 @@ export default function ResultCard({ result, profile: fullProfile, onReset, onBa
     const id = "INS-" + Math.random().toString(36).slice(2, 8).toUpperCase();
     setRefId(id);
 
+    // Use fullProfile (all fields) if available, otherwise fall back to result.profile
+    const profileToSave = fullProfile || {
+      name: profile.name,
+      age: profile.age,
+      gender: "unknown",
+      email: "",
+      phone: "",
+      location: "",
+      height: 0,
+      weight: 0,
+      smoking: false,
+      alcohol: false,
+      exercise: "moderate",
+      family_history: ""
+    };
+
     try {
-      await fetch(`${API}/save-application`, {
+      const res = await fetch(`${API}/save-application`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          profile: fullProfile || profile,
+          profile: profileToSave,
           medical: medical || {},
           risk,
           premium,
           reference_id: id,
         }),
       });
+      const data = await res.json();
+      console.log("Save result:", data);
     } catch (e) {
-      console.log("Save skipped:", e.message);
+      console.log("Save error:", e.message);
     }
 
     setSaving(false);
