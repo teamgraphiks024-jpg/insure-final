@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Shield, TrendingUp, AlertTriangle, CheckCircle, XCircle, RefreshCw, Star, Activity, ChevronLeft, Phone } from "lucide-react";
 
+const API = import.meta.env.VITE_API_BASE || "http://localhost:8000/api";
 const TIER_ICONS = { Platinum: "💎", Gold: "🏆", Silver: "🥈", Standard: "📋", Declined: "❌" };
 
-function CongratsModal({ tier, name, onClose }) {
+function CongratsModal({ tier, name, refId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)" }}>
       <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-8 max-w-md w-full text-center shadow-2xl shadow-emerald-500/10">
@@ -25,7 +26,7 @@ function CongratsModal({ tier, name, onClose }) {
           </div>
         </div>
         <p className="text-slate-500 text-xs mb-5">
-          Reference ID: <span className="text-slate-400 font-mono">INS-{Math.random().toString(36).slice(2,8).toUpperCase()}</span>
+          Reference ID: <span className="text-slate-400 font-mono font-bold">{refId}</span>
         </p>
         <button
           onClick={onClose}
@@ -38,12 +39,39 @@ function CongratsModal({ tier, name, onClose }) {
   );
 }
 
-export default function ResultCard({ result, onReset, onBack }) {
+export default function ResultCard({ result, onReset, onBack, medical }) {
   const [showCongrats, setShowCongrats] = useState(false);
+  const [refId, setRefId] = useState("");
+  const [saving, setSaving] = useState(false);
 
   if (!result) return null;
   const { risk, premium, profile } = result;
   const declined = premium.tier === "Declined";
+
+  const handleGetPolicy = async () => {
+    setSaving(true);
+    const id = "INS-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+    setRefId(id);
+
+    try {
+      await fetch(`${API}/save-application`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profile: result.profile_full || profile,
+          medical: medical || {},
+          risk,
+          premium,
+          reference_id: id,
+        }),
+      });
+    } catch (e) {
+      console.log("Save skipped:", e.message);
+    }
+
+    setSaving(false);
+    setShowCongrats(true);
+  };
 
   const impactColor = (impact) => {
     if (impact === "None") return "text-green-400";
@@ -67,6 +95,7 @@ export default function ResultCard({ result, onReset, onBack }) {
         <CongratsModal
           tier={premium.tier}
           name={profile.name}
+          refId={refId}
           onClose={() => setShowCongrats(false)}
         />
       )}
@@ -164,24 +193,19 @@ export default function ResultCard({ result, onReset, onBack }) {
 
         {/* Actions */}
         <div className="flex gap-3">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all"
-          >
+          <button onClick={onBack} className="flex items-center gap-2 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all">
             <ChevronLeft size={16} /> Back
           </button>
-          <button
-            onClick={onReset}
-            className="flex items-center gap-2 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all"
-          >
+          <button onClick={onReset} className="flex items-center gap-2 px-6 py-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all">
             <RefreshCw size={16} /> Restart
           </button>
           {!declined && (
             <button
-              onClick={() => setShowCongrats(true)}
-              className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+              onClick={handleGetPolicy}
+              disabled={saving}
+              className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 disabled:opacity-60 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
             >
-              🎉 Get Policy Now
+              {saving ? "Saving..." : "🎉 Get Policy Now"}
             </button>
           )}
         </div>

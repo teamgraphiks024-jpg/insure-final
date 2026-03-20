@@ -13,10 +13,8 @@ import io
 
 # Set tesseract path based on OS
 if os.name == "nt":
-    # Windows
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 else:
-    # Linux (Render) - install if missing
     try:
         result = subprocess.run(["which", "tesseract"], capture_output=True, text=True)
         if not result.stdout.strip():
@@ -27,7 +25,7 @@ else:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="InsurePro AI", version="2.0.0")
+app = FastAPI(title="InsurePro AI", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +34,114 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Database Setup ───────────────────────────────────────────────────────────
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+db_conn = None
+
+def get_db():
+    global db_conn
+    if DATABASE_URL and db_conn is None:
+        try:
+            import psycopg2
+            db_conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            db_conn.autocommit = True
+            logger.info("PostgreSQL connected")
+            init_db()
+        except Exception as e:
+            logger.error(f"DB connection failed: {e}")
+            db_conn = None
+    return db_conn
+
+def init_db():
+    conn = get_db()
+    if not conn:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS applications (
+                    id SERIAL PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    -- Profile
+                    name VARCHAR(100),
+                    age INTEGER,
+                    gender VARCHAR(20),
+                    email VARCHAR(100),
+                    phone VARCHAR(20),
+                    location VARCHAR(100),
+                    height FLOAT,
+                    weight FLOAT,
+                    bmi FLOAT,
+                    smoking BOOLEAN,
+                    alcohol BOOLEAN,
+                    exercise VARCHAR(20),
+                    family_history TEXT,
+                    -- Medical values
+                    glucose_fasting FLOAT,
+                    glucose_pp FLOAT,
+                    hba1c FLOAT,
+                    bp_systolic FLOAT,
+                    bp_diastolic FLOAT,
+                    cholesterol_total FLOAT,
+                    hdl FLOAT,
+                    ldl FLOAT,
+                    triglycerides FLOAT,
+                    hemoglobin FLOAT,
+                    creatinine FLOAT,
+                    uric_acid FLOAT,
+                    -- Quote result
+                    risk_score FLOAT,
+                    premium_tier VARCHAR(20),
+                    premium_annual INTEGER,
+                    coverage VARCHAR(50),
+                    reference_id VARCHAR(20)
+                )
+            """)
+        logger.info("DB table ready")
+    except Exception as e:
+        logger.error(f"DB init error: {e}")
+
+def save_application(profile, medical, risk, premium, reference_id):
+    conn = get_db()
+    if not conn:
+        logger.warning("No DB — skipping save")
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO applications (
+                    name, age, gender, email, phone, location,
+                    height, weight, bmi, smoking, alcohol, exercise, family_history,
+                    glucose_fasting, glucose_pp, hba1c, bp_systolic, bp_diastolic,
+                    cholesterol_total, hdl, ldl, triglycerides, hemoglobin, creatinine, uric_acid,
+                    risk_score, premium_tier, premium_annual, coverage, reference_id
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s
+                )
+            """, (
+                profile.name, profile.age, profile.gender, profile.email,
+                profile.phone, profile.location, profile.height, profile.weight,
+                risk.get("bmi"), profile.smoking, profile.alcohol,
+                profile.exercise, profile.family_history or "",
+                medical.get("glucose_fasting"), medical.get("glucose_pp"),
+                medical.get("hba1c"), medical.get("bp_systolic"), medical.get("bp_diastolic"),
+                medical.get("cholesterol_total"), medical.get("hdl"), medical.get("ldl"),
+                medical.get("triglycerides"), medical.get("hemoglobin"),
+                medical.get("creatinine"), medical.get("uric_acid"),
+                risk.get("total"), premium.get("tier"),
+                premium.get("annual"), premium.get("coverage"), reference_id
+            ))
+        logger.info(f"Saved application: {reference_id}")
+        return True
+    except Exception as e:
+        logger.error(f"DB save error: {e}")
+        return False
 
 # ─── Models ───────────────────────────────────────────────────────────────────
 
@@ -57,13 +163,19 @@ class UnderwriteRequest(BaseModel):
     profile: ProfileData
     medical: dict
 
+class SaveApplicationRequest(BaseModel):
+    profile: ProfileData
+    medical: dict
+    risk: dict
+    premium: dict
+    reference_id: str
+
 # ─── OCR ──────────────────────────────────────────────────────────────────────
 
 def run_ocr(image_bytes: bytes) -> str:
     try:
         image = Image.open(io.BytesIO(image_bytes))
-        # Enhance for better OCR
-        image = image.convert("L")  # grayscale
+        image = image.convert("L")
         text = pytesseract.image_to_string(image, config="--psm 6")
         logger.info(f"OCR extracted {len(text)} chars")
         return text
@@ -81,25 +193,23 @@ def extract_date(text: str) -> Optional[str]:
     ]
     month_map = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
                  "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
-
-    keywords = ["collection", "collected", "report date", "date of", "sample date", "date:"]
+    keywords = ["collection","collected","report date","date of","sample date","date:"]
     lines = text.lower().split("\n")
 
-    # First pass: look near date keywords
     for i, line in enumerate(lines):
         if any(kw in line for kw in keywords):
             search_text = " ".join(lines[max(0,i-1):i+3])
             for pattern, fmt in patterns:
                 m = re.search(pattern, search_text, re.IGNORECASE)
                 if m:
-                    return parse_match(m, fmt, month_map)
+                    r = parse_match(m, fmt, month_map)
+                    if r: return r
 
-    # Second pass: any date in full text
     for pattern, fmt in patterns:
         m = re.search(pattern, text, re.IGNORECASE)
         if m:
-            return parse_match(m, fmt, month_map)
-
+            r = parse_match(m, fmt, month_map)
+            if r: return r
     return None
 
 
@@ -133,7 +243,7 @@ def parse_date_flexible(date_str: str) -> Optional[datetime]:
             continue
     return None
 
-# ─── Medical Value Extraction ─────────────────────────────────────────────────
+# ─── Medical Extraction ───────────────────────────────────────────────────────
 
 def extract_number(text: str, patterns: list) -> Optional[float]:
     for pattern in patterns:
@@ -153,18 +263,15 @@ def extract_medical(text: str) -> dict:
             r"fasting\s*(?:glucose|blood\s*sugar)[^\d]*(\d+\.?\d*)",
             r"glucose\s*[,\-\(]?\s*f\b[^\d]*(\d+\.?\d*)",
             r"fbs[^\d]*(\d+\.?\d*)",
-            r"blood\s*glucose\s*fasting[^\d]*(\d+\.?\d*)",
         ]),
         "glucose_pp": extract_number(t, [
             r"post\s*(?:prandial|meal)[^\d]*(\d+\.?\d*)",
-            r"pp\s*glucose[^\d]*(\d+\.?\d*)",
             r"ppbs[^\d]*(\d+\.?\d*)",
         ]),
         "hba1c": extract_number(t, [
             r"hba1c[^\d]*(\d+\.?\d*)",
             r"hb\s*a1c[^\d]*(\d+\.?\d*)",
             r"glycated\s*haemoglobin[^\d]*(\d+\.?\d*)",
-            r"glycosylated[^\d]*(\d+\.?\d*)",
         ]),
         "bp_systolic": extract_number(t, [
             r"(?:bp|blood\s*pressure)[^\d]*(\d{2,3})\s*\/",
@@ -176,33 +283,17 @@ def extract_medical(text: str) -> dict:
         ]),
         "cholesterol_total": extract_number(t, [
             r"total\s*cholesterol[^\d]*(\d+\.?\d*)",
-            r"cholesterol\s*total[^\d]*(\d+\.?\d*)",
             r"cholesterol[^\d]*(\d+\.?\d*)",
         ]),
-        "hdl": extract_number(t, [
-            r"hdl[^\d]*(\d+\.?\d*)",
-            r"hdl\s*cholesterol[^\d]*(\d+\.?\d*)",
-        ]),
-        "ldl": extract_number(t, [
-            r"ldl[^\d]*(\d+\.?\d*)",
-            r"ldl\s*cholesterol[^\d]*(\d+\.?\d*)",
-        ]),
-        "triglycerides": extract_number(t, [
-            r"triglycerides?[^\d]*(\d+\.?\d*)",
-            r"trig[^\d]*(\d+\.?\d*)",
-        ]),
+        "hdl": extract_number(t, [r"hdl[^\d]*(\d+\.?\d*)"]),
+        "ldl": extract_number(t, [r"ldl[^\d]*(\d+\.?\d*)"]),
+        "triglycerides": extract_number(t, [r"triglycerides?[^\d]*(\d+\.?\d*)"]),
         "hemoglobin": extract_number(t, [
             r"h(?:a|e)moglobin[^\d]*(\d+\.?\d*)",
             r"\bhb\b[^\d]*(\d+\.?\d*)",
         ]),
-        "creatinine": extract_number(t, [
-            r"creatinine[^\d]*(\d+\.?\d*)",
-            r"s\.?\s*creatinine[^\d]*(\d+\.?\d*)",
-        ]),
-        "uric_acid": extract_number(t, [
-            r"uric\s*acid[^\d]*(\d+\.?\d*)",
-            r"s\.?\s*uric[^\d]*(\d+\.?\d*)",
-        ]),
+        "creatinine": extract_number(t, [r"creatinine[^\d]*(\d+\.?\d*)"]),
+        "uric_acid": extract_number(t, [r"uric\s*acid[^\d]*(\d+\.?\d*)"]),
     }
 
 # ─── Risk Engine ──────────────────────────────────────────────────────────────
@@ -323,15 +414,19 @@ def determine_premium_tier(risk_score: float, age: int) -> dict:
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+async def startup():
+    get_db()
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ocr": "tesseract", "version": "2.0.0"}
+    return {"status": "ok", "ocr": "tesseract", "version": "3.0.0", "db": db_conn is not None}
 
 @app.get("/api/debug")
 def debug():
     try:
         ver = pytesseract.get_tesseract_version()
-        return {"tesseract_version": str(ver), "status": "ok"}
+        return {"tesseract_version": str(ver), "status": "ok", "db_connected": db_conn is not None}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -339,6 +434,10 @@ def debug():
 async def validate_report(file: UploadFile = File(...)):
     try:
         content = await file.read()
+        mime = file.content_type or "image/jpeg"
+        if not mime.startswith("image/"):
+            mime = "image/png"
+
         text = run_ocr(content)
         logger.info(f"OCR preview: {text[:300]}")
 
@@ -367,6 +466,7 @@ async def validate_report(file: UploadFile = File(...)):
         logger.error(f"Validate error: {e}")
         return {"valid": False, "error": f"Server error: {str(e)}"}
 
+
 @app.post("/api/extract")
 async def extract_endpoint(file: UploadFile = File(...)):
     try:
@@ -379,6 +479,7 @@ async def extract_endpoint(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Extract error: {e}")
         return {"medical": {}, "error": str(e)}
+
 
 @app.post("/api/underwrite")
 async def underwrite(req: UnderwriteRequest):
@@ -393,3 +494,20 @@ async def underwrite(req: UnderwriteRequest):
     except Exception as e:
         logger.error(f"Underwrite error: {e}")
         return {"error": str(e)}
+
+
+@app.post("/api/save-application")
+async def save_application_endpoint(req: SaveApplicationRequest):
+    """Called when user clicks Get Policy Now — saves everything to PostgreSQL."""
+    try:
+        success = save_application(
+            profile=req.profile,
+            medical=req.medical,
+            risk=req.risk,
+            premium=req.premium,
+            reference_id=req.reference_id
+        )
+        return {"saved": success, "reference_id": req.reference_id}
+    except Exception as e:
+        logger.error(f"Save error: {e}")
+        return {"saved": False, "error": str(e)}
