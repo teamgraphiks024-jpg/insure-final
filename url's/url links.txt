@@ -1,3 +1,7 @@
 vercel:insure-final.vercel.app(frontend) 
 
 render:https://insure-final-fm9r.onrender.com(backend)
+
+
+database external link:postgresql://insurepro_db_user:MGUy9CJgrFiniQgZtV1bBzqYozkyZNHn@dpg-d6ugtt6a2pns739c37u0-a.oregon-postgres.render.com/insurepro_db
+database internal link:postgresql://insurepro_db_user:MGUy9CJgrFiniQgZtV1bBzqYozkyZNHn@dpg-d6ugtt6a2pns739c37u0-a/insurepro_db
