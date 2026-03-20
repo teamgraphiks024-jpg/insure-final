@@ -67,7 +67,7 @@ export default function App() {
           <h1 className="text-4xl font-black text-white mb-2 tracking-tight">
             Insure<span className="text-cyan-400">Pro</span> AI
           </h1>
-          <p className="text-slate-400">Health insurance underwriting powered by Gemini Vision</p>
+          <p className="text-slate-400">Health insurance underwriting powered by Trust</p>
         </div>
 
         {/* Step Progress */}
