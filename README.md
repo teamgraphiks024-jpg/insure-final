@@ -2,12 +2,13 @@
 
 A full-stack health insurance underwriting system that uses **Tesseract OCR** to extract data from medical reports and generate realistic insurance quotes based on risk assessment.
 
-> Built with FastAPI · React · Tesseract OCR · TailwindCSS
+> Built with FastAPI · React · Tesseract OCR · TailwindCSS · PostgreSQL
 
+**🌐 Frontend:** https://insure-final.vercel.app  
+**⚙️ Backend:** https://insure-final-fm9r.onrender.com  
+**🗄️ Database:** Render PostgreSQL
 
-vercel:insure-final.vercel.app(frontend)
-render:https://insure-final-fm9r.onrender.com(backend)
-
+---
 
 ## 📦 Repository
 
@@ -27,16 +28,16 @@ cd insure-final
 ```
 insurepro/
 ├── backend/
-│   ├── main.py              # FastAPI application + OCR + risk engine
+│   ├── main.py              # FastAPI application + OCR + risk engine + DB
 │   ├── requirements.txt     # Python dependencies
 │   ├── start.sh             # Render startup script
 │   └── .env.example         # Environment variable template
 └── frontend/
     ├── src/
     │   ├── components/
-    │   │   ├── PolicyHolderProfile.jsx   # Step 1 — profile form
-    │   │   ├── ClinicalRiskAssessment.jsx # Step 2 — report upload
-    │   │   └── ResultCard.jsx            # Step 3 — quote display
+    │   │   ├── PolicyHolderProfile.jsx    # Step 1 — profile form
+    │   │   ├── ClinicalRiskAssessment.jsx # Step 2 — report upload & OCR
+    │   │   └── ResultCard.jsx             # Step 3 — quote display & save
     │   ├── App.jsx
     │   ├── main.jsx
     │   └── index.css
@@ -60,6 +61,7 @@ insurepro/
 - **5 premium tiers** — Platinum to Declined, with age multipliers
 - **Sample data profiles** — 3 preset profiles (Acceptable / Needs Review / Declined)
 - **Input validation** — letters-only for name/city, digits-only for age/height/weight/phone
+- **PostgreSQL storage** — all policy applications saved silently to database on submission
 - **Responsive dark UI** — glass morphism design with TailwindCSS
 
 ---
@@ -71,6 +73,7 @@ insurepro/
 - Python 3.9+
 - Node.js 18+
 - **Tesseract OCR** installed on your machine
+- PostgreSQL database (optional for local — app works without it)
 
 #### Install Tesseract (Windows)
 1. Download installer from: https://github.com/UB-Mannheim/tesseract/wiki
@@ -101,6 +104,10 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Create .env file
+cp .env.example .env
+# Add DATABASE_URL if using PostgreSQL locally (optional)
+
 # Run server
 uvicorn main:app --reload --port 8000
 ```
@@ -108,11 +115,11 @@ uvicorn main:app --reload --port 8000
 Backend runs at: http://localhost:8000  
 API docs (Swagger): http://localhost:8000/docs
 
-Verify Tesseract is working:
+Verify everything is working:
 ```
-GET http://localhost:8000/api/debug
+GET http://localhost:8000/api/health
 ```
-Should return `{ "tesseract_version": "5.x.x", "status": "ok" }`
+Should return `{ "status": "ok", "ocr": "tesseract", "db": true }`
 
 ---
 
@@ -136,18 +143,25 @@ For local development, the frontend already points to `http://localhost:8000/api
 
 ## 🌐 Deployment
 
+### Database → Render PostgreSQL
+
+1. Go to https://render.com → **New** → **PostgreSQL**
+2. Name it `insurepro-db` → Plan: **Free** → **Create Database**
+3. Copy the **Internal Database URL** from the Connections section
+4. Add it as `DATABASE_URL` environment variable on your backend service
+
 ### Backend → Render
 
 1. Push `backend/` to a GitHub repo
 2. Go to https://render.com → **New Web Service**
 3. Connect your GitHub repo
 4. Settings:
-   - **Build Command**: `pip install -r requirements.txt && apt-get install -y tesseract-ocr`
-   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
    - **Python Version**: 3.9
-5. Deploy → copy your service URL
-
-> Note: On Linux servers (Render), Tesseract installs via apt. Update the `tesseract_cmd` line in `main.py` to just `tesseract` (remove the Windows path).
+5. Environment Variables:
+   - `DATABASE_URL` = Internal Database URL from Render PostgreSQL
+6. Deploy → copy your service URL
 
 ### Frontend → Vercel
 
@@ -167,9 +181,10 @@ For local development, the frontend already points to `http://localhost:8000/api
 
 | Variable | Where | Description |
 |---|---|---|
+| `DATABASE_URL` | Backend (Render) | PostgreSQL connection string |
 | `VITE_API_BASE` | Frontend (Vercel) | Full backend API URL |
 
-> No API keys required — OCR runs fully offline with Tesseract.
+> No Gemini or any other API keys required — OCR runs fully offline with Tesseract.
 
 ---
 
@@ -177,11 +192,47 @@ For local development, the frontend already points to `http://localhost:8000/api
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/health` | Health check |
+| GET | `/api/health` | Health check + DB status |
 | GET | `/api/debug` | Tesseract version check |
 | POST | `/api/validate` | Validate report date (upload image) |
 | POST | `/api/extract` | Extract medical values (upload image) |
 | POST | `/api/underwrite` | Full risk assessment + quote |
+| POST | `/api/save-application` | Save policy application to PostgreSQL |
+
+---
+
+## 🗄️ Database Schema
+
+When a user clicks **Get Policy Now**, the following data is saved to the `applications` table in PostgreSQL:
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | SERIAL | Auto-increment primary key |
+| `created_at` | TIMESTAMP | Application submission time |
+| `name` | VARCHAR | Policyholder name |
+| `age` | INTEGER | Age |
+| `gender` | VARCHAR | Gender |
+| `email` | VARCHAR | Email address |
+| `phone` | VARCHAR | Phone number |
+| `location` | VARCHAR | City/location |
+| `height` | FLOAT | Height in cm |
+| `weight` | FLOAT | Weight in kg |
+| `bmi` | FLOAT | Calculated BMI |
+| `smoking` | BOOLEAN | Smoking status |
+| `alcohol` | BOOLEAN | Alcohol use |
+| `exercise` | VARCHAR | Exercise level |
+| `family_history` | TEXT | Family medical history |
+| `glucose_fasting` | FLOAT | Fasting glucose (mg/dL) |
+| `hba1c` | FLOAT | HbA1c (%) |
+| `bp_systolic` | FLOAT | Systolic BP (mmHg) |
+| `bp_diastolic` | FLOAT | Diastolic BP (mmHg) |
+| `cholesterol_total` | FLOAT | Total cholesterol (mg/dL) |
+| `triglycerides` | FLOAT | Triglycerides (mg/dL) |
+| `risk_score` | FLOAT | Calculated risk score |
+| `premium_tier` | VARCHAR | Platinum / Gold / Silver / Standard / Declined |
+| `premium_annual` | INTEGER | Annual premium in INR |
+| `coverage` | VARCHAR | Coverage amount |
+| `reference_id` | VARCHAR | Unique reference (e.g. INS-A3K9XP) |
 
 ---
 
